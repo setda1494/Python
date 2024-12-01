@@ -7,7 +7,6 @@ import time
 api_key = '9ad4acf0420c46b0bba900de0cfbea94'  # 여기에 실제 API 키를 입력하세요
 url = 'https://newsapi.org/v2/everything'  # 올바른 엔드포인트
 
-
 def fetch_and_display_news():
     # 현재 날짜와 시간 가져오기
     current_time = datetime.now()
@@ -59,13 +58,13 @@ def fetch_and_display_news():
     else:
         print("API 요청 실패, 상태 코드:", response.status_code)
 
-
 # 12시와 00시에 뉴스 업데이트
 schedule.every().day.at("00:00").do(fetch_and_display_news)
 schedule.every().day.at("12:00").do(fetch_and_display_news)
 
 # 프로그램 실행
 fetch_and_display_news()  # 처음 실행하여 바로 보내기
+
 while True:
     schedule.run_pending()
     time.sleep(1)
