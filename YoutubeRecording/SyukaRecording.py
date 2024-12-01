@@ -3,7 +3,9 @@ import time
 import requests
 from pytube import YouTube
 from datetime import datetime
+from pathlib import Path
 from plyer import notification  # 알림 기능을 위한 라이브러리
+import threading  # 백그라운드 실행을 위한 모듈
 
 # YouTube API 키 및 채널 ID 설정
 API_KEY = 'YOUR_API_KEY'  # 여기에 자신의 API 키를 입력하세요
@@ -17,6 +19,12 @@ if not API_KEY or not CHANNEL_ID:
 MONITOR_DAY = 6  # 6은 일요일
 MONITOR_HOUR = 20  # 20은 8시 (24시간 형식)
 
+def log_error(message):
+    """오류 메시지를 로그 파일에 기록하는 함수."""
+    error_log_file = "error_log.txt"  # 오류 로그 파일 이름
+    with open(error_log_file, 'a', encoding='utf-8') as f:
+        f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {message}\n")
+
 def get_live_broadcast_id():
     """실시간 방송 ID를 가져오는 함수."""
     try:
@@ -28,7 +36,7 @@ def get_live_broadcast_id():
         if data['items']:
             return data['items'][0]['id']['videoId']  # 방송 ID 반환
     except Exception as e:
-        print(f"실시간 방송 ID를 가져오는 중 오류 발생: {e}")  # 오류 메시지 출력
+        log_error(f"실시간 방송 ID를 가져오는 중 오류 발생: {e}")  # 오류 메시지 기록
     return None  # 방송이 없으면 None 반환
 
 def get_video_details(video_id):
@@ -42,17 +50,27 @@ def get_video_details(video_id):
         if data['items']:
             return data['items'][0]['status']['lifeCycleStatus']  # 방송 상태 반환
     except Exception as e:
-        print(f"비디오 상세 정보를 가져오는 중 오류 발생: {e}")  # 오류 메시지 출력
+        log_error(f"비디오 상세 정보를 가져오는 중 오류 발생: {e}")  # 오류 메시지 기록
     return None  # 상태를 가져오지 못한 경우 None 반환
 
 def download_video(video_url, save_path, video_title):
     """비디오를 다운로드하는 함수."""
+    file_path = Path(save_path) / f"{video_title}.mp4"  # 파일 경로 생성
+
+    if file_path.is_file():  # 이미 다운로드한 파일인지 확인
+        print(f"{video_title}는 이미 다운로드되었습니다.")
+        return True  # 이미 다운로드된 경우
+
     try:
         yt = YouTube(video_url)  # YouTube 객체 생성
         print(f"다운로드할 비디오 제목: {video_title}")
 
-        # 최상의 품질 선택 (비디오와 오디오가 포함된 스트림)
-        stream = yt.streams.filter(progressive=True, file_extension='mp4').get_highest_resolution()
+        # 1080p 품질의 MP4 형식 선택
+        stream = yt.streams.filter(progressive=True, file_extension='mp4', resolution='1080p').first()
+        if stream is None:
+            print(f"1080p 품질의 MP4 스트림을 찾을 수 없습니다.")
+            return False
+
         print("비디오 다운로드 중...")
 
         # 다운로드 진행률 표시 및 파일 저장
@@ -60,7 +78,7 @@ def download_video(video_url, save_path, video_title):
         print("다운로드 완료!")
         return True  # 다운로드 성공
     except Exception as e:
-        print(f"다운로드 중 오류 발생: {e}")  # 오류 메시지 출력
+        log_error(f"다운로드 중 오류 발생: {e}")  # 오류 메시지 기록
         return False  # 다운로드 실패
 
 def on_progress(stream, chunk, bytes_remaining):
@@ -91,12 +109,12 @@ def should_monitor():
     now = datetime.now()
     return now.weekday() == MONITOR_DAY and now.hour == MONITOR_HOUR  # 설정된 요일과 시간 확인
 
-if __name__ == "__main__":
+def monitor_live_broadcast():
+    """실시간 방송을 모니터링하는 함수."""
     save_path = "downloads"  # 다운로드할 폴더 설정
     if not os.path.exists(save_path):
         os.makedirs(save_path)  # 폴더가 없으면 생성
 
-    already_downloaded = set()  # 이미 다운로드한 비디오 ID 저장
     live_broadcast_id = None  # 현재 실시간 방송 ID 초기화
 
     while True:
@@ -109,24 +127,16 @@ if __name__ == "__main__":
                 send_notification("Live Broadcast Started", f"새로운 방송이 시작되었습니다: https://www.youtube.com/watch?v={live_broadcast_id}")
             elif live_broadcast_id:  # 방송이 종료된 경우
                 status = get_video_details(live_broadcast_id)  # 방송 상태 확인
-                if status == "complete" and live_broadcast_id not in already_downloaded:
+                if status == "complete":
                     live_video_url = f"https://www.youtube.com/watch?v={live_broadcast_id}"  # 비디오 URL 생성
                     video_title = f"{live_broadcast_id}_{datetime.now().strftime('%Y%m%d')}"  # 제목에 날짜 추가
-                    success = False
 
-                    # 다운로드 재시도 로직
-                    for attempt in range(5):  # 최대 5회 재시도
-                        print(f"다운로드 시도 {attempt + 1}...")
-                        success = download_video(live_video_url, save_path, video_title)  # 비디오 다운로드 시도
-                        if success:
-                            already_downloaded.add(live_broadcast_id)  # 다운로드 성공 시 ID 추가
-                            log_download(video_title)  # 로그 기록
-                            send_notification("Live Broadcast Downloaded", f"방송이 다운로드되었습니다: {video_title}")  # 다운로드 알림
-                            break
-                        time.sleep(5)  # 실패 시 5초 대기 후 재시도
+                    # 다운로드 시도
+                    success = download_video(live_video_url, save_path, video_title)  # 비디오 다운로드 시도
+                    if success:
+                        log_download(video_title)  # 로그 기록
+                        send_notification("Live Broadcast Downloaded", f"방송이 다운로드되었습니다: {video_title}")  # 다운로드 알림
 
-                    if not success:
-                        print("최대 재시도 횟수를 초과했습니다. 다운로드 실패.")
                 live_broadcast_id = None  # 방송 ID 초기화
 
         else:
@@ -134,3 +144,13 @@ if __name__ == "__main__":
             time.sleep(3600)  # 1시간 대기 (방송이 없어도 대기)
 
         time.sleep(60)  # 1분마다 체크
+
+if __name__ == "__main__":
+    # 백그라운드에서 방송 모니터링 스레드 시작
+    monitor_thread = threading.Thread(target=monitor_live_broadcast)
+    monitor_thread.daemon = True  # 메인 프로그램 종료 시 스레드도 종료
+    monitor_thread.start()
+
+    # 메인 프로그램은 다른 작업을 수행하거나 종료 대기
+    while True:
+        time.sleep(1)  # 메인 스레드는 계속 실행 중
