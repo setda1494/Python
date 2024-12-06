@@ -1,3 +1,5 @@
+#pip install requests pyjwt
+
 import os
 import time
 import pyupbit
