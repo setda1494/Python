@@ -2,3 +2,4 @@
 YoutubeDow
     pip install pytube
     pip install plyer
+    pip install Pillow

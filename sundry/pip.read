@@ -1,0 +1,5 @@
+netflixSuggestion.py
+    pip install requests beautifulsoup4
+    pip install requests
+    pip install matplotlib
+
